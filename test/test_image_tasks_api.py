@@ -10,6 +10,7 @@ import api.image_tasks as image_tasks_module
 
 
 AUTH_HEADERS = {"Authorization": "Bearer chatgpt2api"}
+TEST_IDENTITY = {"id": "admin", "name": "管理员", "role": "admin"}
 
 
 class FakeImageTaskService:
@@ -59,6 +60,12 @@ class FakeImageTaskService:
 class ImageTasksApiTests(unittest.TestCase):
     def setUp(self):
         self.fake_service = FakeImageTaskService()
+        self.identity_patcher = mock.patch.object(image_tasks_module, "require_identity", return_value=TEST_IDENTITY)
+        self.identity_patcher.start()
+        self.addCleanup(self.identity_patcher.stop)
+        self.filter_patcher = mock.patch.object(image_tasks_module, "check_request", return_value=None)
+        self.filter_patcher.start()
+        self.addCleanup(self.filter_patcher.stop)
         self.service_patcher = mock.patch.object(image_tasks_module, "image_task_service", self.fake_service)
         self.service_patcher.start()
         self.addCleanup(self.service_patcher.stop)

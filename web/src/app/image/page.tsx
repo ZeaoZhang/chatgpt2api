@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { History, LoaderCircle, Plus, Trash2 } from "lucide-react";
+import { History, LoaderCircle, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ImageComposer } from "@/app/image/components/image-composer";
@@ -22,8 +22,13 @@ import {
   createImageGenerationTask,
   fetchAccounts,
   fetchImageTasks,
+  fetchPromptTemplates,
+  renderPromptTemplate,
+  runImageAgent,
   type Account,
+  type AgentImageRunResponse,
   type ImageTask,
+  type PromptTemplate,
 } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import {
@@ -355,6 +360,22 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: "one"; id: string } | { type: "all" } | null>(null);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [templateQuery, setTemplateQuery] = useState("");
+  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+  const [templateVariableDraft, setTemplateVariableDraft] = useState<{
+    template: PromptTemplate;
+    values: Record<string, string>;
+  } | null>(null);
+  const [agentMode, setAgentMode] = useState(false);
+  const [isAgentRunning, setIsAgentRunning] = useState(false);
+  const [agentClarification, setAgentClarification] = useState<{
+    runId: string;
+    prompt: string;
+    questions: string[];
+    answers: Record<number, string>;
+  } | null>(null);
 
   const parsedCount = useMemo(() => Number(clampImageCount(imageCount)), [imageCount]);
   const selectedConversation = useMemo(
@@ -692,6 +713,151 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     setLightboxOpen(true);
   }, []);
 
+  const loadTemplates = useCallback(async (query = "") => {
+    setIsLoadingTemplates(true);
+    try {
+      const data = await fetchPromptTemplates({ query });
+      setTemplates(data.items);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "加载模板失败";
+      toast.error(message);
+    } finally {
+      setIsLoadingTemplates(false);
+    }
+  }, []);
+
+  const openTemplatePicker = useCallback(() => {
+    setTemplatePickerOpen(true);
+    void loadTemplates(templateQuery);
+  }, [loadTemplates, templateQuery]);
+
+  const applyTemplate = useCallback(
+    async (template: PromptTemplate, values?: Record<string, string>) => {
+      try {
+        const defaultValues = Object.fromEntries(
+          (template.variables || [])
+            .filter((variable) => variable.default)
+            .map((variable) => [variable.name, variable.default || ""]),
+        );
+        const data = await renderPromptTemplate({
+          template_id: template.id,
+          variables: { ...defaultValues, ...(values || {}) },
+        });
+        if (data.missing_variables.length > 0 && !values) {
+          setTemplateVariableDraft({
+            template,
+            values: Object.fromEntries((template.variables || []).map((variable) => [variable.name, variable.default || ""])),
+          });
+          return;
+        }
+        setImagePrompt(data.rendered_prompt);
+        setTemplatePickerOpen(false);
+        setTemplateVariableDraft(null);
+        textareaRef.current?.focus();
+        toast.success("模板已应用");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "应用模板失败";
+        toast.error(message);
+      }
+    },
+    [],
+  );
+
+  const persistAgentRun = useCallback(
+    async (response: Extract<AgentImageRunResponse, { status: "running" }>, originalPrompt: string) => {
+      const now = new Date().toISOString();
+      const targetConversation = selectedConversationId
+        ? conversationsRef.current.find((conversation) => conversation.id === selectedConversationId) ?? null
+        : null;
+      const conversationId = targetConversation?.id ?? createId();
+      const turnId = createId();
+      const finalPrompt = response.prompt || response.optimization.final_prompt || originalPrompt;
+      const taskMap = new Map(response.tasks.map((task) => [task.id, task]));
+      const images = response.tasks.map((task, index) => {
+        const imageId = task.id || `${turnId}-${index}`;
+        return taskDataToStoredImage(
+          {
+            id: imageId,
+            taskId: task.id,
+            status: "loading" as const,
+          },
+          taskMap.get(task.id) || task,
+        );
+      });
+      const draftTurn: ImageTurn = {
+        id: turnId,
+        prompt: finalPrompt,
+        model: "gpt-image-2",
+        mode: response.mode,
+        referenceImages: response.mode === "edit" ? referenceImages : [],
+        count: response.tasks.length || parsedCount,
+        size: imageSize,
+        images,
+        createdAt: now,
+        status: deriveTurnStatus({ id: turnId, prompt: finalPrompt, model: "gpt-image-2", mode: response.mode, referenceImages: [], count: images.length, size: imageSize, images, createdAt: now, status: "generating" }).status,
+      };
+      const baseConversation: ImageConversation = targetConversation
+        ? {
+            ...targetConversation,
+            updatedAt: now,
+            turns: [...targetConversation.turns, draftTurn],
+          }
+        : {
+            id: conversationId,
+            title: buildConversationTitle(finalPrompt),
+            createdAt: now,
+            updatedAt: now,
+            turns: [draftTurn],
+          };
+      setSelectedConversationId(conversationId);
+      clearComposerInputs();
+      await persistConversation(baseConversation);
+      toast.success(response.optimization.sequence_plan.length > 0 ? "Agent 已开始生成连续图像" : "Agent 已开始生成图片");
+    },
+    [clearComposerInputs, imageSize, parsedCount, referenceImages, selectedConversationId],
+  );
+
+  const runAgent = useCallback(
+    async (answers = "") => {
+      const prompt = imagePrompt.trim() || agentClarification?.prompt.trim() || "";
+      if (!prompt) {
+        toast.error("请输入需求");
+        return;
+      }
+      const runId = agentClarification?.runId || createId();
+      setIsAgentRunning(true);
+      try {
+        const response = await runImageAgent({
+          runId,
+          prompt,
+          files: referenceImageFiles,
+          mode: parsedCount > 1 ? "sequence" : "single",
+          count: parsedCount,
+          size: imageSize,
+          clarificationAnswers: answers,
+          allowClarification: !answers,
+        });
+        if (response.status === "needs_clarification") {
+          setAgentClarification({
+            runId,
+            prompt,
+            questions: response.questions,
+            answers: {},
+          });
+          return;
+        }
+        setAgentClarification(null);
+        await persistAgentRun(response, prompt);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Agent 运行失败";
+        toast.error(message);
+      } finally {
+        setIsAgentRunning(false);
+      }
+    },
+    [agentClarification?.prompt, agentClarification?.runId, imagePrompt, imageSize, parsedCount, persistAgentRun, referenceImageFiles],
+  );
+
   /* eslint-disable react-hooks/preserve-manual-memoization */
   const runConversationQueue = useCallback(
     async (conversationId: string) => {
@@ -869,6 +1035,11 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   }, [conversations, runConversationQueue]);
 
   const handleSubmit = async () => {
+    if (agentMode) {
+      await runAgent();
+      return;
+    }
+
     const prompt = imagePrompt.trim();
     if (!prompt) {
       toast.error("请输入提示词");
@@ -1024,6 +1195,8 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             imageSize={imageSize}
             availableQuota={availableQuota}
             activeTaskCount={activeTaskCount}
+            agentMode={agentMode}
+            isAgentRunning={isAgentRunning}
             referenceImages={referenceImages}
             textareaRef={textareaRef}
             fileInputRef={fileInputRef}
@@ -1031,6 +1204,8 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             onImageCountChange={(value) => setImageCount(value ? clampImageCount(value) : "")}
             onImageSizeChange={setImageSize}
             onSubmit={handleSubmit}
+            onAgentModeChange={setAgentMode}
+            onOpenTemplatePicker={openTemplatePicker}
             onPickReferenceImage={() => fileInputRef.current?.click()}
             onReferenceImageChange={handleReferenceImageChange}
             onRemoveReferenceImage={handleRemoveReferenceImage}
@@ -1066,6 +1241,153 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
           </DialogContent>
         </Dialog>
       ) : null}
+
+      <Dialog open={templatePickerOpen} onOpenChange={setTemplatePickerOpen}>
+        <DialogContent className="flex h-[min(82dvh,760px)] w-[92vw] max-w-[760px] flex-col overflow-hidden rounded-[28px] p-0">
+          <DialogHeader className="px-6 pt-6 pb-3">
+            <DialogTitle>选择模板</DialogTitle>
+            <DialogDescription>应用后会填入输入框，仍可继续手动调整。</DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 border-b border-stone-100 px-6 pb-4">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" />
+              <input
+                value={templateQuery}
+                onChange={(event) => setTemplateQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void loadTemplates(templateQuery);
+                }}
+                placeholder="搜索标题、分类、内容"
+                className="h-10 w-full rounded-xl border border-stone-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-stone-300"
+              />
+            </div>
+            <Button variant="outline" className="h-10 rounded-xl border-stone-200 bg-white" onClick={() => void loadTemplates(templateQuery)} disabled={isLoadingTemplates}>
+              {isLoadingTemplates ? <LoaderCircle className="size-4 animate-spin" /> : "搜索"}
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {templates.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                className="block w-full border-b border-stone-100 px-6 py-4 text-left transition hover:bg-stone-50"
+                onClick={() => void applyTemplate(template)}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-stone-950">{template.title}</span>
+                  {template.category ? <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs text-stone-500">{template.category}</span> : null}
+                </div>
+                <p className="mt-2 line-clamp-3 text-sm leading-6 text-stone-600">{template.template_text}</p>
+                {template.variables?.length ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {template.variables.map((variable) => (
+                      <span key={variable.name} className="rounded-full bg-stone-100 px-2 py-0.5 text-xs text-stone-500">
+                        {variable.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </button>
+            ))}
+            {!isLoadingTemplates && templates.length === 0 ? <div className="px-6 py-14 text-center text-sm text-stone-500">没有找到模板</div> : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(templateVariableDraft)} onOpenChange={(open) => (!open ? setTemplateVariableDraft(null) : null)}>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>填写变量</DialogTitle>
+            <DialogDescription>{templateVariableDraft?.template.title}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            {templateVariableDraft?.template.variables.map((variable) => (
+              <label key={variable.name} className="grid gap-1.5 text-sm font-medium text-stone-700">
+                {variable.label || variable.name}
+                <input
+                  value={templateVariableDraft.values[variable.name] || ""}
+                  onChange={(event) =>
+                    setTemplateVariableDraft((current) =>
+                      current
+                        ? {
+                            ...current,
+                            values: { ...current.values, [variable.name]: event.target.value },
+                          }
+                        : current,
+                    )
+                  }
+                  placeholder={variable.default || variable.name}
+                  className="h-10 rounded-xl border border-stone-200 bg-white px-3 text-sm outline-none transition focus:border-stone-300"
+                />
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => setTemplateVariableDraft(null)}>
+              取消
+            </Button>
+            <Button
+              className="rounded-xl bg-stone-950 text-white hover:bg-stone-800"
+              onClick={() => {
+                if (!templateVariableDraft) return;
+                void applyTemplate(templateVariableDraft.template, templateVariableDraft.values);
+              }}
+            >
+              应用
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(agentClarification)} onOpenChange={(open) => (!open ? setAgentClarification(null) : null)}>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Agent 需要补充信息</DialogTitle>
+            <DialogDescription>回答后 Agent 会继续优化提示词并自动提交生成任务。</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            {agentClarification?.questions.map((question, index) => (
+              <label key={`${question}-${index}`} className="grid gap-1.5 text-sm font-medium text-stone-700">
+                {question}
+                <input
+                  value={agentClarification.answers[index] || ""}
+                  onChange={(event) =>
+                    setAgentClarification((current) =>
+                      current
+                        ? {
+                            ...current,
+                            answers: { ...current.answers, [index]: event.target.value },
+                          }
+                        : current,
+                    )
+                  }
+                  className="h-10 rounded-xl border border-stone-200 bg-white px-3 text-sm outline-none transition focus:border-stone-300"
+                />
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => setAgentClarification(null)} disabled={isAgentRunning}>
+              取消
+            </Button>
+            <Button
+              className="rounded-xl bg-stone-950 text-white hover:bg-stone-800"
+              disabled={isAgentRunning}
+              onClick={() => {
+                if (!agentClarification) return;
+                const answers = agentClarification.questions
+                  .map((question, index) => `${question}\n${agentClarification.answers[index] || ""}`.trim())
+                  .filter(Boolean)
+                  .join("\n\n");
+                void runAgent(answers);
+              }}
+            >
+              {isAgentRunning ? <LoaderCircle className="size-4 animate-spin" /> : null}
+              继续
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

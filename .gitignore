@@ -28,3 +28,4 @@ docker-compose-local.yml
 
 # Git cache
 git_cache/
+.omx/

@@ -129,6 +129,72 @@ export type UserKey = {
   last_used_at: string | null;
 };
 
+export type PromptTemplateVariable = {
+  name: string;
+  label: string;
+  default?: string;
+};
+
+export type PromptTemplate = {
+  id: string;
+  scope: "builtin" | "user" | "imported";
+  title: string;
+  description?: string;
+  category?: string;
+  tags?: string[];
+  language?: string;
+  template_text: string;
+  variables: PromptTemplateVariable[];
+  source_type?: string;
+  source_url?: string;
+  source_repo?: string;
+  source_path?: string;
+  source_heading?: string;
+  source_line?: number;
+  preview_image_url?: string;
+  created_at?: string;
+  updated_at?: string;
+  imported_at?: string;
+  version?: number;
+};
+
+export type PromptTemplateImportResponse = {
+  items: PromptTemplate[];
+  imported: number;
+  skipped: number;
+  candidates: number;
+  errors?: Array<{ path?: string; error: string }>;
+};
+
+export type AgentPromptOptimizeResponse = {
+  original_prompt: string;
+  final_prompt: string;
+  model: string;
+  mode: string;
+  count: number;
+  size: string;
+  needs_clarification?: boolean;
+  clarification_questions?: string[];
+  style_consistency_notes: string[];
+  sequence_plan: string[];
+  safety_notes: string[];
+  raw_response: string;
+};
+
+export type AgentImageRunResponse =
+  | {
+      status: "needs_clarification";
+      questions: string[];
+      optimization: AgentPromptOptimizeResponse;
+    }
+  | {
+      status: "running";
+      mode: "generate" | "edit";
+      prompt: string;
+      optimization: AgentPromptOptimizeResponse;
+      tasks: ImageTask[];
+    };
+
 export type RegisterConfig = {
   enabled: boolean;
   mail: {
@@ -364,6 +430,120 @@ export async function deleteUserKey(keyId: string) {
   return httpRequest<{ items: UserKey[] }>(`/api/auth/users/${keyId}`, {
     method: "DELETE",
   });
+}
+
+export async function fetchPromptTemplates(filters: { query?: string; category?: string; tag?: string } = {}) {
+  const params = new URLSearchParams();
+  if (filters.query) params.set("query", filters.query);
+  if (filters.category) params.set("category", filters.category);
+  if (filters.tag) params.set("tag", filters.tag);
+  return httpRequest<{ items: PromptTemplate[] }>(
+    `/api/prompt-templates${params.toString() ? `?${params.toString()}` : ""}`,
+  );
+}
+
+export async function createPromptTemplate(body: {
+  title: string;
+  description?: string;
+  category?: string;
+  tags?: string[] | string;
+  language?: string;
+  template_text: string;
+  preview_image_url?: string;
+}) {
+  return httpRequest<PromptTemplate>("/api/prompt-templates", { method: "POST", body });
+}
+
+export async function updatePromptTemplate(
+  templateId: string,
+  body: Partial<{
+    title: string;
+    description: string;
+    category: string;
+    tags: string[] | string;
+    language: string;
+    template_text: string;
+    preview_image_url: string;
+  }>,
+) {
+  return httpRequest<PromptTemplate>(`/api/prompt-templates/${templateId}`, { method: "PUT", body });
+}
+
+export async function deletePromptTemplate(templateId: string) {
+  return httpRequest<{ deleted: true }>(`/api/prompt-templates/${templateId}`, { method: "DELETE" });
+}
+
+export async function renderPromptTemplate(body: {
+  template_id?: string;
+  template_text?: string;
+  variables?: Record<string, string>;
+}) {
+  return httpRequest<{
+    template_id: string | null;
+    rendered_prompt: string;
+    missing_variables: string[];
+    variables: PromptTemplateVariable[];
+  }>("/api/prompt-templates/render", { method: "POST", body });
+}
+
+export async function importPromptTemplatesFromMarkdown(body: {
+  markdown: string;
+  source_url?: string;
+  source_repo?: string;
+  source_path?: string;
+  tags?: string[] | string;
+  language?: string;
+}) {
+  return httpRequest<PromptTemplateImportResponse>("/api/prompt-templates/import/markdown", { method: "POST", body });
+}
+
+export async function importPromptTemplatesFromGithub(body: {
+  repo_url: string;
+  paths?: string[];
+  tags?: string[] | string;
+  language?: string;
+}) {
+  return httpRequest<PromptTemplateImportResponse>("/api/prompt-templates/import/github", { method: "POST", body });
+}
+
+export async function optimizeImagePrompt(body: {
+  prompt: string;
+  model?: string;
+  mode?: "single" | "sequence" | "batch" | string;
+  count?: number;
+  size?: string;
+  template_text?: string;
+  context?: string;
+}) {
+  return httpRequest<AgentPromptOptimizeResponse>("/api/agent/prompt-optimize", { method: "POST", body });
+}
+
+export async function runImageAgent(body: {
+  runId: string;
+  prompt: string;
+  files?: File[];
+  model?: ImageModel;
+  optimizerModel?: string;
+  mode?: string;
+  count?: number;
+  size?: string;
+  templateText?: string;
+  clarificationAnswers?: string;
+  allowClarification?: boolean;
+}) {
+  const formData = new FormData();
+  formData.append("run_id", body.runId);
+  formData.append("prompt", body.prompt);
+  formData.append("model", body.model || "gpt-image-2");
+  formData.append("optimizer_model", body.optimizerModel || "auto");
+  formData.append("mode", body.mode || "single");
+  formData.append("count", String(body.count || 1));
+  formData.append("size", body.size || "");
+  formData.append("template_text", body.templateText || "");
+  formData.append("clarification_answers", body.clarificationAnswers || "");
+  formData.append("allow_clarification", body.allowClarification === false ? "false" : "true");
+  (body.files || []).forEach((file) => formData.append("image", file));
+  return httpRequest<AgentImageRunResponse>("/api/agent/image-run", { method: "POST", body: formData });
 }
 
 export async function fetchRegisterConfig() {

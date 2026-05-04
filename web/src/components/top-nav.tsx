@@ -15,6 +15,7 @@ const adminNavItems = [
   { href: "/accounts", label: "号池管理" },
   { href: "/register", label: "注册机" },
   { href: "/image-manager", label: "图片管理" },
+  { href: "/prompt-templates", label: "模板库" },
   { href: "/logs", label: "日志管理" },
   { href: "/settings", label: "设置" },
 ];

@@ -1,5 +1,5 @@
 "use client";
-import { ArrowUp, Check, ChevronDown, ImagePlus, LoaderCircle, X } from "lucide-react";
+import { ArrowUp, Bot, Check, ChevronDown, ImagePlus, LayoutTemplate, LoaderCircle, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type RefObject } from "react";
 
 import { ImageLightbox } from "@/components/image-lightbox";
@@ -14,6 +14,8 @@ type ImageComposerProps = {
   imageSize: string;
   availableQuota: string;
   activeTaskCount: number;
+  agentMode: boolean;
+  isAgentRunning: boolean;
   referenceImages: Array<{ name: string; dataUrl: string }>;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   fileInputRef: RefObject<HTMLInputElement | null>;
@@ -21,6 +23,8 @@ type ImageComposerProps = {
   onImageCountChange: (value: string) => void;
   onImageSizeChange: (value: string) => void;
   onSubmit: () => void | Promise<void>;
+  onAgentModeChange: (value: boolean) => void;
+  onOpenTemplatePicker: () => void;
   onPickReferenceImage: () => void;
   onReferenceImageChange: (files: File[]) => void | Promise<void>;
   onRemoveReferenceImage: (index: number) => void;
@@ -32,6 +36,8 @@ export function ImageComposer({
   imageSize,
   availableQuota,
   activeTaskCount,
+  agentMode,
+  isAgentRunning,
   referenceImages,
   textareaRef,
   fileInputRef,
@@ -39,6 +45,8 @@ export function ImageComposer({
   onImageCountChange,
   onImageSizeChange,
   onSubmit,
+  onAgentModeChange,
+  onOpenTemplatePicker,
   onPickReferenceImage,
   onReferenceImageChange,
   onRemoveReferenceImage,
@@ -171,6 +179,28 @@ export function ImageComposer({
             <div className="border-t border-stone-100 bg-white px-3 pb-3 pt-2 sm:absolute sm:inset-x-0 sm:bottom-0 sm:border-t-0 sm:bg-gradient-to-t sm:from-white sm:via-white/95 sm:to-transparent sm:px-6 sm:pb-4 sm:pt-6" onClick={(event) => event.stopPropagation()}>
               <div className="flex items-end justify-between gap-2 sm:gap-3">
                 <div className="hide-scrollbar flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto pb-0.5 sm:flex-wrap sm:gap-3 sm:overflow-visible sm:pb-0">
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-full border px-3 text-xs font-medium transition sm:h-10 sm:px-4 sm:text-sm",
+                      agentMode
+                        ? "border-stone-950 bg-stone-950 text-white hover:border-stone-800 hover:bg-stone-800 hover:text-white"
+                        : "border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-100 hover:text-stone-900",
+                    )}
+                    onClick={() => onAgentModeChange(!agentMode)}
+                  >
+                    <Bot className="size-3.5 sm:size-4" />
+                    <span>{agentMode ? "Agent" : "手动"}</span>
+                  </button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 shrink-0 rounded-full border-stone-200 bg-white px-3 text-xs font-medium text-stone-700 shadow-none sm:h-10 sm:px-4 sm:text-sm"
+                    onClick={onOpenTemplatePicker}
+                  >
+                    <LayoutTemplate className="size-3.5 sm:size-4" />
+                    <span>模板</span>
+                  </Button>
                   <Button
                     type="button"
                     variant="outline"
@@ -248,9 +278,9 @@ export function ImageComposer({
                   onClick={() => void onSubmit()}
                   disabled={!prompt.trim()}
                   className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-stone-950 text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300 sm:size-11"
-                  aria-label={referenceImages.length > 0 ? "编辑图片" : "生成图片"}
+                  aria-label={agentMode ? "运行 Agent" : referenceImages.length > 0 ? "编辑图片" : "生成图片"}
                 >
-                  <ArrowUp className="size-3.5 sm:size-4" />
+                  {isAgentRunning ? <LoaderCircle className="size-3.5 animate-spin sm:size-4" /> : <ArrowUp className="size-3.5 sm:size-4" />}
                 </button>
               </div>
             </div>
@@ -260,4 +290,3 @@ export function ImageComposer({
     </div>
   );
 }
-
