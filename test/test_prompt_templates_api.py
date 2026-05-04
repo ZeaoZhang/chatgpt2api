@@ -52,6 +52,16 @@ class FakePromptTemplateService:
     def delete_template(self, _identity, template_id):
         return self.items.pop(template_id, None) is not None
 
+    def delete_templates(self, _identity, template_ids):
+        deleted = 0
+        missing_ids = []
+        for template_id in template_ids:
+            if self.items.pop(template_id, None) is None:
+                missing_ids.append(template_id)
+            else:
+                deleted += 1
+        return {"deleted": deleted, "missing_ids": missing_ids}
+
     def render_template(self, _identity, **kwargs):
         return {
             "template_id": kwargs.get("template_id") or None,
@@ -117,6 +127,22 @@ class PromptTemplatesApiTests(unittest.TestCase):
         delete_response = self.client.delete("/api/prompt-templates/template-1", headers=AUTH_HEADERS)
         self.assertEqual(delete_response.status_code, 200, delete_response.text)
         self.assertEqual(delete_response.json(), {"deleted": True})
+
+    def test_bulk_delete_templates(self):
+        self.fake_service.items = {
+            "template-1": {"id": "template-1", "scope": "user", "title": "One", "template_text": "Create one.", "variables": []},
+            "template-2": {"id": "template-2", "scope": "imported", "title": "Two", "template_text": "Create two.", "variables": []},
+        }
+
+        response = self.client.post(
+            "/api/prompt-templates/delete",
+            headers=AUTH_HEADERS,
+            json={"ids": ["template-1", "template-2", "missing"]},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"deleted": 2, "missing_ids": ["missing"]})
+        self.assertEqual(self.fake_service.items, {})
 
     def test_render_markdown_import_and_github_import(self):
         render_response = self.client.post(

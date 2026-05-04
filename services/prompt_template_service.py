@@ -382,6 +382,23 @@ class PromptTemplateService:
             self._save_locked()
             return True
 
+    def delete_templates(self, identity: dict[str, object], template_ids: list[str]) -> dict[str, Any]:
+        owner = _owner_id(identity)
+        id_set = {template_id for item in template_ids if (template_id := _clean(item))}
+        if not id_set:
+            return {"deleted": 0, "missing_ids": []}
+        with self._lock:
+            deleted_ids = {
+                str(item.get("id"))
+                for item in self._items
+                if str(item.get("id")) in id_set and self._can_write(owner, item)
+            }
+            if not deleted_ids:
+                return {"deleted": 0, "missing_ids": sorted(id_set)}
+            self._items = [item for item in self._items if str(item.get("id")) not in deleted_ids]
+            self._save_locked()
+            return {"deleted": len(deleted_ids), "missing_ids": sorted(id_set - deleted_ids)}
+
     def render_template(
         self,
         identity: dict[str, object],

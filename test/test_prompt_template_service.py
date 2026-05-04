@@ -144,6 +144,30 @@ class PromptTemplateServiceTests(unittest.TestCase):
             self.assertIsNone(service.get_template(OTHER_OWNER, item["id"]))
             self.assertFalse(service.delete_template(OTHER_OWNER, item["id"]))
 
+    def test_imported_templates_can_be_updated_and_deleted_in_bulk(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = self.make_service(Path(tmp_dir) / "prompt_templates.json")
+            imported = service.import_markdown(OWNER, markdown=SAMPLE_MARKDOWN)["items"][0]
+            user_item = service.create_template(OWNER, {"title": "Manual", "template_text": "Create a cinematic {{subject}} poster."})
+            other_item = service.create_template(OTHER_OWNER, {"title": "Other", "template_text": "Create a clean studio {{subject}} portrait."})
+
+            updated = service.update_template(
+                OWNER,
+                imported["id"],
+                {"title": "Edited import", "template_text": "Render a premium {{product}} campaign image."},
+            )
+
+            self.assertIsNotNone(updated)
+            self.assertEqual(updated["title"], "Edited import")
+            self.assertEqual([variable["name"] for variable in updated["variables"]], ["product"])
+
+            result = service.delete_templates(OWNER, [imported["id"], user_item["id"], other_item["id"], "missing"])
+
+            self.assertEqual(result["deleted"], 2)
+            self.assertEqual(set(result["missing_ids"]), {"missing", other_item["id"]})
+            self.assertEqual(service.list_templates(OWNER)["items"], [])
+            self.assertEqual(service.list_templates(OTHER_OWNER)["items"][0]["id"], other_item["id"])
+
 
 if __name__ == "__main__":
     unittest.main()

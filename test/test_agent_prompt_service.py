@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest import mock
 
-from services.agent_prompt_service import AgentPromptService
+from services.agent_prompt_service import AgentPromptService, DEFAULT_AGENT_SYSTEM_PROMPT
 
 
 class AgentPromptServiceTests(unittest.TestCase):
@@ -56,6 +57,41 @@ class AgentPromptServiceTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             service.optimize_prompt(prompt="  ")
+
+    def test_external_agent_service_uses_openai_compatible_config(self):
+        captured = {}
+        fake_response = mock.Mock()
+        fake_response.json.return_value = {"choices": [{"message": {"content": '{"final_prompt":"External optimized."}'}}]}
+
+        with mock.patch("services.agent_prompt_service.config") as fake_config:
+            fake_config.agent_service = {
+                "provider": "openai_compatible",
+                "base_url": "https://agent.example.test",
+                "api_key": "sk-test",
+                "model": "gpt-4.1-mini",
+                "prompt": "Custom agent prompt",
+            }
+            with mock.patch("services.agent_prompt_service.proxy_settings.build_session_kwargs", return_value={}):
+                with mock.patch("services.agent_prompt_service.requests.post", return_value=fake_response) as post:
+                    service = AgentPromptService()
+                    result = service.optimize_prompt(prompt="生成一张产品海报，白底，突出质感")
+
+        self.assertEqual(result["final_prompt"], "External optimized.")
+        post.assert_called_once()
+        kwargs = post.call_args.kwargs
+        captured["json"] = kwargs["json"]
+        self.assertEqual(post.call_args.args[0], "https://agent.example.test/v1/chat/completions")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer sk-test")
+        self.assertEqual(captured["json"]["model"], "gpt-4.1-mini")
+        self.assertEqual(captured["json"]["messages"][0]["content"], "Custom agent prompt")
+
+    def test_default_agent_prompt_is_used_without_custom_config(self):
+        with mock.patch("services.agent_prompt_service.config") as fake_config:
+            fake_config.agent_service = {"provider": "internal", "prompt": ""}
+            service = AgentPromptService(lambda messages, _model: json.dumps({"final_prompt": messages[0]["content"]}))
+            result = service.optimize_prompt(prompt="生成一张干净的产品海报")
+
+        self.assertEqual(result["final_prompt"], DEFAULT_AGENT_SYSTEM_PROMPT)
 
 
 if __name__ == "__main__":

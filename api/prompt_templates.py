@@ -54,6 +54,10 @@ class GithubImportBody(BaseModel):
     language: str = ""
 
 
+class PromptTemplateDeleteManyBody(BaseModel):
+    ids: list[str] = Field(default_factory=list)
+
+
 def create_router() -> APIRouter:
     router = APIRouter()
 
@@ -115,6 +119,12 @@ def create_router() -> APIRouter:
         if not deleted:
             raise HTTPException(status_code=404, detail={"error": "template not found"})
         return {"deleted": True}
+
+    @router.post("/api/prompt-templates/delete")
+    async def delete_prompt_templates(body: PromptTemplateDeleteManyBody, authorization: str | None = Header(default=None)):
+        identity = require_identity(authorization)
+        result = await run_in_threadpool(prompt_template_service.delete_templates, identity, body.ids)
+        return result
 
     @router.post("/api/prompt-templates/render")
     async def render_prompt_template(

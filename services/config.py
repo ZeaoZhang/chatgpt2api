@@ -150,6 +150,21 @@ class ConfigStore:
         return value if isinstance(value, dict) else {}
 
     @property
+    def agent_service(self) -> dict[str, object]:
+        value = self.data.get("agent_service")
+        raw = value if isinstance(value, dict) else {}
+        provider = str(raw.get("provider") or "internal").strip().lower()
+        if provider not in {"internal", "openai_compatible"}:
+            provider = "internal"
+        return {
+            "provider": provider,
+            "base_url": str(raw.get("base_url") or "").strip(),
+            "api_key": str(raw.get("api_key") or "").strip(),
+            "model": str(raw.get("model") or "auto").strip() or "auto",
+            "prompt": str(raw.get("prompt") or "").strip(),
+        }
+
+    @property
     def images_dir(self) -> Path:
         path = DATA_DIR / "images"
         path.mkdir(parents=True, exist_ok=True)
@@ -201,6 +216,7 @@ class ConfigStore:
         data["log_levels"] = self.log_levels
         data["sensitive_words"] = self.sensitive_words
         data["ai_review"] = self.ai_review
+        data["agent_service"] = self.agent_service
         data.pop("auth-key", None)
         return data
 

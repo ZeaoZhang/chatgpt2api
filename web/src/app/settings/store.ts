@@ -46,6 +46,13 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
       model: String(config.ai_review?.model || ""),
       prompt: String(config.ai_review?.prompt || ""),
     },
+    agent_service: {
+      provider: String(config.agent_service?.provider || "internal"),
+      base_url: String(config.agent_service?.base_url || ""),
+      api_key: String(config.agent_service?.api_key || ""),
+      model: String(config.agent_service?.model || "auto"),
+      prompt: String(config.agent_service?.prompt || ""),
+    },
   };
 }
 
@@ -110,6 +117,7 @@ type SettingsStore = {
   setBaseUrl: (value: string) => void;
   setSensitiveWordsText: (value: string) => void;
   setAIReviewField: (key: "enabled" | "base_url" | "api_key" | "model" | "prompt", value: string | boolean) => void;
+  setAgentServiceField: (key: "provider" | "base_url" | "api_key" | "model" | "prompt", value: string) => void;
 
   loadRegister: (silent?: boolean) => Promise<void>;
   setRegisterConfig: (config: RegisterConfig) => void;
@@ -223,6 +231,13 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
           model: String(config.ai_review?.model || "").trim(),
           prompt: String(config.ai_review?.prompt || "").trim(),
         },
+        agent_service: {
+          provider: String(config.agent_service?.provider || "internal").trim(),
+          base_url: String(config.agent_service?.base_url || "").trim(),
+          api_key: String(config.agent_service?.api_key || "").trim(),
+          model: String(config.agent_service?.model || "auto").trim() || "auto",
+          prompt: String(config.agent_service?.prompt || "").trim(),
+        },
       });
       set({
         config: normalizeConfig(data.config),
@@ -309,6 +324,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setAIReviewField: (key, value) => {
     set((state) => state.config ? { config: { ...state.config, ai_review: { ...(state.config.ai_review || {}), [key]: value } } } : {});
+  },
+
+  setAgentServiceField: (key, value) => {
+    set((state) => state.config ? { config: { ...state.config, agent_service: { ...(state.config.agent_service || {}), [key]: value } } } : {});
   },
 
   loadRegister: async (silent = false) => {

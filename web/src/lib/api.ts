@@ -61,6 +61,13 @@ export type SettingsConfig = {
     model?: string;
     prompt?: string;
   };
+  agent_service?: {
+    provider?: "internal" | "openai_compatible" | string;
+    base_url?: string;
+    api_key?: string;
+    model?: string;
+    prompt?: string;
+  };
   refresh_account_interval_minute?: number | string;
   image_retention_days?: number | string;
   image_poll_timeout_secs?: number | string;
@@ -471,6 +478,10 @@ export async function updatePromptTemplate(
 
 export async function deletePromptTemplate(templateId: string) {
   return httpRequest<{ deleted: true }>(`/api/prompt-templates/${templateId}`, { method: "DELETE" });
+}
+
+export async function deletePromptTemplates(ids: string[]) {
+  return httpRequest<{ deleted: number; missing_ids: string[] }>("/api/prompt-templates/delete", { method: "POST", body: { ids } });
 }
 
 export async function renderPromptTemplate(body: {

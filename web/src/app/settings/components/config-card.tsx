@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { testProxy, type ProxyTestResult } from "@/lib/api";
 
@@ -30,6 +31,7 @@ export function ConfigCard() {
   const setBaseUrl = useSettingsStore((state) => state.setBaseUrl);
   const setSensitiveWordsText = useSettingsStore((state) => state.setSensitiveWordsText);
   const setAIReviewField = useSettingsStore((state) => state.setAIReviewField);
+  const setAgentServiceField = useSettingsStore((state) => state.setAgentServiceField);
   const saveConfig = useSettingsStore((state) => state.saveConfig);
 
   const handleTestProxy = async () => {
@@ -190,6 +192,42 @@ export function ConfigCard() {
               className="min-h-28 rounded-xl border-stone-200 bg-white font-mono text-xs shadow-none"
             />
             <p className="text-xs text-stone-500">只要用户请求包含任意敏感词，就直接返回拒绝。</p>
+          </div>
+          <div className="space-y-4 rounded-xl border border-stone-200 bg-white px-4 py-3 md:col-span-2">
+            <div className="space-y-1">
+              <label className="text-sm text-stone-700">Agent 服务</label>
+              <p className="text-xs text-stone-500">内部账号池适合直接复用现有 ChatGPT 账号；外部兼容接口用于独立配置 Agent 的提示词优化模型。</p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-4">
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Provider</label>
+                <Select value={String(config?.agent_service?.provider || "internal")} onValueChange={(value) => setAgentServiceField("provider", value)}>
+                  <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="internal">内部账号池</SelectItem>
+                    <SelectItem value="openai_compatible">OpenAI 兼容接口</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Base URL</label>
+                <Input value={String(config?.agent_service?.base_url || "")} onChange={(event) => setAgentServiceField("base_url", event.target.value)} placeholder="https://api.openai.com" className="h-10 rounded-xl border-stone-200 bg-white" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">API Key</label>
+                <Input value={String(config?.agent_service?.api_key || "")} onChange={(event) => setAgentServiceField("api_key", event.target.value)} placeholder="sk-..." className="h-10 rounded-xl border-stone-200 bg-white" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Model</label>
+                <Input value={String(config?.agent_service?.model || "auto")} onChange={(event) => setAgentServiceField("model", event.target.value)} placeholder="auto 或 gpt-4.1-mini" className="h-10 rounded-xl border-stone-200 bg-white" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">Agent 系统提示词</label>
+              <Textarea value={String(config?.agent_service?.prompt || "")} onChange={(event) => setAgentServiceField("prompt", event.target.value)} placeholder="留空使用默认图像生成 Agent 提示词。" className="min-h-24 rounded-xl border-stone-200 bg-white text-xs shadow-none" />
+            </div>
           </div>
           <div className="space-y-4 rounded-xl border border-stone-200 bg-white px-4 py-3 md:col-span-2">
             <label className="flex items-center gap-3 text-sm text-stone-700">

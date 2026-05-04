@@ -22,5 +22,12 @@
     "api_key": "",
     "model": "gpt-5.4-mini",
     "prompt": "判断用户请求是否允许。只回答 ALLOW 或 REJECT。"
+  },
+  "agent_service": {
+    "provider": "internal",
+    "base_url": "",
+    "api_key": "",
+    "model": "auto",
+    "prompt": ""
   }
 }
